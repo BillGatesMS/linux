@@ -13,6 +13,7 @@
  * GNU General Public License for more details.
  *
  */
+#include <linux/types.h>
 #include <linux/dma-iommu.h>
 
 #include <linux/dma-buf.h>
@@ -20,17 +21,19 @@
 #include <drm/drm_atomic.h>
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_fb_helper.h>
-#include <drm/drm_sync_helper.h>
-#include <drm/rockchip_drm.h>
+//#include <drm/drm_sync_helper.h>
+//#include <drm/rockchip_drm.h>
 #include <linux/dma-mapping.h>
-#include <linux/rockchip-iovmm.h>
+//#include <linux/rockchip-iovmm.h>
+//#include <asm/dma-iommu.h>
+#include <linux/iommu.h>
 #include <linux/pm_runtime.h>
 #include <linux/memblock.h>
 #include <linux/module.h>
 #include <linux/of_address.h>
 #include <linux/of_graph.h>
 #include <linux/component.h>
-#include <linux/fence.h>
+//#include <linux/fence.h>
 #include <linux/console.h>
 #include <linux/kref.h>
 #include <linux/fdtable.h>
@@ -122,6 +125,7 @@ static void vcodec_drm_detach(struct vcodec_iommu_info *iommu_info)
 
 static int vcodec_drm_attach_unlock(struct vcodec_iommu_info *iommu_info)
 {
+#if 1
 	struct vcodec_iommu_drm_info *drm_info = iommu_info->private;
 	struct device *dev = iommu_info->dev;
 	struct iommu_domain *domain = drm_info->domain;
@@ -137,14 +141,34 @@ static int vcodec_drm_attach_unlock(struct vcodec_iommu_info *iommu_info)
 		dev_err(dev, "Failed to attach iommu device\n");
 		return ret;
 	}
-
+#if 0
 	if (!common_iommu_setup_dma_ops(dev, 0x10000000, SZ_2G, domain->ops)) {
 		dev_err(dev, "Failed to set dma_ops\n");
 		iommu_detach_device(domain, dev);
 		ret = -ENODEV;
 	}
-
+#endif
 	return ret;
+#else
+	int ret = 0;
+	struct dma_iommu_mapping *mapping = arm_iommu_create_mapping(&platform_bus_type, 0x10000000, SZ_2G);
+	struct device *dev = iommu_info->dev;
+
+	if(IS_ERR(mapping))
+		return PTR_ERR(mapping);
+
+	ret = dma_set_coherent_mask(dev, DMA_BIT_MASK(32));
+	if (ret)
+		return ret;
+
+	dma_set_max_seg_size(dev, DMA_BIT_MASK(32));
+	ret = arm_iommu_attach_device(dev, mapping);
+	if (ret) {
+		dev_err(dev, "Failed to attach iommu device\n");
+		return ret;
+	}
+	return 0;
+#endif
 }
 
 static int vcodec_drm_attach(struct vcodec_iommu_info *iommu_info)
@@ -277,7 +301,7 @@ static int vcodec_drm_free(struct vcodec_iommu_session_info *session_info,
 		return -EINVAL;
 	}
 
-	if (atomic_read(&drm_buffer->ref.refcount) == 0) {
+	if (refcount_read(&drm_buffer->ref.refcount) == 0) {
 		dma_buf_put(drm_buffer->dma_buf);
 		list_del_init(&drm_buffer->list);
 		kfree(drm_buffer);
@@ -298,8 +322,12 @@ vcodec_drm_unmap_iommu(struct vcodec_iommu_session_info *session_info,
 	struct vcodec_drm_buffer *drm_buffer;
 
 	/* Force to flush iommu table */
-	if (of_machine_is_compatible("rockchip,rk3288"))
-		rockchip_iovmm_invalidate_tlb(session_info->mmu_dev);
+	//if (of_machine_is_compatible("rockchip,rk3288"))
+	//	rockchip_iovmm_invalidate_tlb(session_info->mmu_dev);
+
+
+	//vcodec_drm_detach(session_info->iommu_info);
+	//vcodec_drm_attach(session_info->iommu_info);
 
 	mutex_lock(&session_info->list_mutex);
 	drm_buffer = vcodec_drm_get_buffer_no_lock(session_info, idx);
@@ -324,8 +352,11 @@ static int vcodec_drm_map_iommu(struct vcodec_iommu_session_info *session_info,
 	struct vcodec_drm_buffer *drm_buffer;
 
 	/* Force to flush iommu table */
-	if (of_machine_is_compatible("rockchip,rk3288"))
-		rockchip_iovmm_invalidate_tlb(session_info->mmu_dev);
+	//if (of_machine_is_compatible("rockchip,rk3288"))
+	//	rockchip_iovmm_invalidate_tlb(session_info->mmu_dev);
+
+	//vcodec_drm_detach(session_info->iommu_info);
+//	vcodec_drm_attach(session_info->iommu_info);
 
 	mutex_lock(&session_info->list_mutex);
 	drm_buffer = vcodec_drm_get_buffer_no_lock(session_info, idx);
@@ -390,7 +421,7 @@ vcodec_drm_free_fd(struct vcodec_iommu_session_info *session_info, int fd)
 	vcodec_drm_unmap_iommu(session_info, drm_buffer->index);
 
 	mutex_lock(&session_info->list_mutex);
-	if (atomic_read(&drm_buffer->ref.refcount) == 0) {
+	if (refcount_read(&drm_buffer->ref.refcount) == 0) {
 		dma_buf_put(drm_buffer->dma_buf);
 		list_del_init(&drm_buffer->list);
 		kfree(drm_buffer);

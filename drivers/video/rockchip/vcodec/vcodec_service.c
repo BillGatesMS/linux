@@ -29,7 +29,9 @@
 #include <linux/reset.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
+#ifdef CONFIG_WAKELOCK
 #include <linux/wakelock.h>
+#endif
 #include <linux/cdev.h>
 #include <linux/of.h>
 #include <linux/of_platform.h>
@@ -39,14 +41,16 @@
 #include <linux/uaccess.h>
 #include <linux/debugfs.h>
 #include <linux/pm_runtime.h>
-#include <linux/iopoll.h>
 
+#if 0
 #include <linux/rockchip/cru.h>
 #include <linux/rockchip/pmu.h>
 #include <linux/rockchip/grf.h>
 
-#include <linux/dma-buf.h>
 #include <linux/rockchip-iovmm.h>
+#endif
+
+#include <linux/dma-buf.h>
 
 #include "vcodec_hw_info.h"
 #include "vcodec_hw_vpu.h"
@@ -357,7 +361,9 @@ struct vpu_subdev_data {
 };
 
 struct vpu_service_info {
+#ifdef CONFIG_WAKELOCK
 	struct wake_lock wake_lock;
+#endif
 	struct delayed_work power_off_work;
 	ktime_t last; /* record previous power-on time */
 	/* vpu service structure global lock */
@@ -610,13 +616,10 @@ static int vpu_get_clk(struct vpu_service_info *pservice)
 #endif
 }
 
+extern int rockchip_pmu_set_idle_request(struct device *dev, bool idle);
 static void _vpu_reset(struct vpu_subdev_data *data)
 {
 	struct vpu_service_info *pservice = data->pservice;
-	enum pmu_idle_req type = IDLE_REQ_VIDEO;
-
-	if (pservice->dev_id == VCODEC_DEVICE_ID_HEVC)
-		type = IDLE_REQ_HEVC;
 
 	dev_info(pservice->dev, "resetting...\n");
 	WARN_ON(pservice->reg_codec != NULL);
@@ -628,8 +631,8 @@ static void _vpu_reset(struct vpu_subdev_data *data)
 
 #ifdef CONFIG_RESET_CONTROLLER
 	dev_info(pservice->dev, "for 3288/3368...");
-	if (of_machine_is_compatible("rockchip,rk3288"))
-		rockchip_pmu_idle_request(pservice->dev, true);
+//	if (of_machine_is_compatible("rockchip,rk3288"))
+//		rockchip_pmu_set_idle_request(pservice->dev, true);
 	if (pservice->rst_a && pservice->rst_h) {
 		dev_info(pservice->dev, "vpu reset in\n");
 
@@ -650,8 +653,8 @@ static void _vpu_reset(struct vpu_subdev_data *data)
 
 		reset_control_deassert(pservice->rst_v);
 	}
-	if (of_machine_is_compatible("rockchip,rk3288"))
-		rockchip_pmu_idle_request(pservice->dev, false);
+//	if (of_machine_is_compatible("rockchip,rk3288"))
+//		rockchip_pmu_set_idle_request(pservice->dev, false);
 #endif
 }
 
@@ -759,7 +762,9 @@ static void vpu_service_power_off(struct vpu_service_info *pservice)
 #endif
 
 	atomic_add(1, &pservice->power_off_cnt);
+#ifdef CONFIG_WAKELOCK
 	wake_unlock(&pservice->wake_lock);
+#endif
 	dev_dbg(pservice->dev, "power off done\n");
 }
 
@@ -789,6 +794,7 @@ static void vpu_service_power_on(struct vpu_subdev_data *data,
 				 struct vpu_service_info *pservice)
 {
 	int ret;
+	u32 raw = 0;
 	ktime_t now = ktime_get();
 
 	if (ktime_to_ns(ktime_sub(now, pservice->last)) > NSEC_PER_SEC ||
@@ -810,10 +816,21 @@ static void vpu_service_power_on(struct vpu_subdev_data *data,
 	dev_dbg(pservice->dev, "power on\n");
 
 #define BIT_VCODEC_CLK_SEL	(1<<10)
-	if (of_machine_is_compatible("rockchip,rk3126"))
-		writel_relaxed(readl_relaxed(RK_GRF_VIRT + RK312X_GRF_SOC_CON1)
-			| BIT_VCODEC_CLK_SEL | (BIT_VCODEC_CLK_SEL << 16),
-			RK_GRF_VIRT + RK312X_GRF_SOC_CON1);
+#if 0
+	if (of_machine_is_compatible("rockchip,rk3126")) {
+		if (pservice->grf) {
+			regmap_read(pservice->grf, RK312X_GRF_SOC_CON1, &raw);
+
+			regmap_write(pservice->grf, RK312X_GRF_SOC_CON1,
+					raw | BIT_VCODEC_CLK_SEL | (BIT_VCODEC_CLK_SEL << 16));
+		} else if (pservice->grf_base) {
+			u32 *grf_base = pservice->grf_base;
+			writel_relaxed(readl_relaxed(grf_base + RK312X_GRF_SOC_CON1)
+				| BIT_VCODEC_CLK_SEL | (BIT_VCODEC_CLK_SEL << 16),
+				grf_base + RK312X_GRF_SOC_CON1);
+		}
+	}
+#endif
 
 #if VCODEC_CLOCK_ENABLE
 	if (pservice->aclk_vcodec)
@@ -843,7 +860,9 @@ static void vpu_service_power_on(struct vpu_subdev_data *data,
 
 	udelay(5);
 	atomic_add(1, &pservice->power_on_cnt);
+#ifdef CONFIG_WAKELOCK
 	wake_lock(&pservice->wake_lock);
+#endif
 }
 
 static inline bool reg_check_interlace(struct vpu_reg *reg)
@@ -2131,6 +2150,7 @@ static irqreturn_t vepu_irq(int irq, void *dev_id);
 static irqreturn_t vepu_isr(int irq, void *dev_id);
 static void get_hw_info(struct vpu_subdev_data *data);
 
+#ifdef CONFIG_RK_IOVMM
 static struct device *rockchip_get_sysmmu_dev(const char *compt)
 {
 	struct device_node *dn = NULL;
@@ -2152,6 +2172,7 @@ static struct device *rockchip_get_sysmmu_dev(const char *compt)
 
 	return ret;
 }
+#endif
 
 #ifdef CONFIG_IOMMU_API
 static inline void platform_set_sysmmu(struct device *iommu,
@@ -2166,6 +2187,7 @@ static inline void platform_set_sysmmu(struct device *iommu,
 }
 #endif
 
+#ifdef CONFIG_RK_IOVMM
 int vcodec_sysmmu_fault_hdl(struct device *dev,
 			    enum rk_iommu_inttype itype,
 			    unsigned long pgtable_base,
@@ -2237,6 +2259,7 @@ int vcodec_sysmmu_fault_hdl(struct device *dev,
 
 	return 0;
 }
+#endif
 
 static int vcodec_subdev_probe(struct platform_device *pdev,
 			       struct vpu_service_info *pservice)
@@ -2252,7 +2275,9 @@ static int vcodec_subdev_probe(struct platform_device *pdev,
 	struct platform_device *sub_dev = NULL;
 	struct device_node *sub_np = NULL;
 	const char *name  = np->name;
+#ifdef CONFIG_RK_IOVMM
 	char mmu_dev_dts_name[40];
+#endif
 
 	dev_info(dev, "probe device");
 
@@ -2283,6 +2308,7 @@ static int vcodec_subdev_probe(struct platform_device *pdev,
 		data->mmu_dev = &sub_dev->dev;
 	}
 
+#ifdef CONFIG_RK_IOVMM
 	/* Back to legacy iommu probe */
 	if (!data->mmu_dev) {
 		switch (data->mode) {
@@ -2309,6 +2335,7 @@ static int vcodec_subdev_probe(struct platform_device *pdev,
 		rockchip_iovmm_set_fault_handler
 			(dev, vcodec_sysmmu_fault_hdl);
 	}
+#endif
 
 	dev_info(dev, "vpu mmu dec %p\n", data->mmu_dev);
 
@@ -2464,7 +2491,7 @@ static void vcodec_read_property(struct device_node *np,
 	pservice->grf = syscon_regmap_lookup_by_phandle(np, "rockchip,grf");
 	if (IS_ERR_OR_NULL(pservice->grf)) {
 		pservice->grf = NULL;
-#ifdef CONFIG_ARM
+#if defined(CONFIG_ARM) && defined(RK_GRF_VIRT)
 		pservice->grf_base = RK_GRF_VIRT;
 #else
 		vpu_err("can't find vpu grf property\n");
@@ -2509,7 +2536,9 @@ static void vcodec_init_drvdata(struct vpu_service_info *pservice)
 	pservice->dev_id = VCODEC_DEVICE_ID_VPU;
 	pservice->curr_mode = -1;
 
+#ifdef CONFIG_WAKELOCK
 	wake_lock_init(&pservice->wake_lock, WAKE_LOCK_SUSPEND, "vpu");
+#endif
 	INIT_LIST_HEAD(&pservice->waiting);
 	INIT_LIST_HEAD(&pservice->running);
 	mutex_init(&pservice->lock);
@@ -2528,7 +2557,7 @@ static void vcodec_init_drvdata(struct vpu_service_info *pservice)
 	atomic_set(&pservice->reset_request, 0);
 
 	INIT_DELAYED_WORK(&pservice->power_off_work, vpu_power_off_work);
-	pservice->last.tv64 = 0;
+	pservice->last = ktime_set(0, 0);
 
 	pservice->alloc_type = 0;
 }
@@ -2617,7 +2646,9 @@ static int vcodec_probe(struct platform_device *pdev)
 err:
 	dev_info(dev, "init failed\n");
 	vpu_service_power_off(pservice);
+#ifdef CONFIG_WAKELOCK
 	wake_lock_destroy(&pservice->wake_lock);
+#endif
 
 	return ret;
 }
@@ -2637,20 +2668,12 @@ static void vcodec_shutdown(struct platform_device *pdev)
 {
 	struct vpu_subdev_data *data = platform_get_drvdata(pdev);
 	struct vpu_service_info *pservice = data->pservice;
-	int val;
-	int ret;
 
 	dev_info(&pdev->dev, "vcodec shutdown");
 
 	mutex_lock(&pservice->shutdown_lock);
 	atomic_set(&pservice->service_on, 0);
 	mutex_unlock(&pservice->shutdown_lock);
-
-	ret = readx_poll_timeout(atomic_read,
-				 &pservice->total_running,
-				 val, val == 0, 20000, 200000);
-	if (ret == -ETIMEDOUT)
-		dev_err(&pdev->dev, "wait total running time out\n");
 
 	vcodec_exit_mode(data);
 
