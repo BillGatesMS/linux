@@ -5,6 +5,7 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3368-px5-evb.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3368-r88.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3399-evb.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3399-firefly.dtb
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3399-sapphire-excavator-linux.dtb
 
 always		:= $(dtb-y)
 subdir-y	:= $(dts-dirs)
