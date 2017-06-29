@@ -55,7 +55,31 @@
 		reg = <0x60000000 0x40000000>;
 	};
 
-	sdio_pwrseq: sdio-pwrseq {
+	es8323-sound {
+	    status = "okay";
+	    compatible = "simple-audio-card";
+	    simple-audio-card,format = "i2s";
+	    simple-audio-card,name = "rockchip,es8323-codec";
+	    simple-audio-card,mclk-fs = <256>;
+	    simple-audio-card,widgets =
+			"Microphone", "Mic Jack",
+			"Headphone", "Headphone Jack";
+	    simple-audio-card,routing =
+			"Mic Jack", "MICBIAS1",
+			"IN1P", "Mic Jack",
+			"Headphone Jack", "HPOL",
+			"Headphone Jack", "HPOR";
+	    simple-audio-card,cpu {
+			sound-dai = <&i2s1>;
+			system-clock-frequency = <11289600>;
+	    };
+	    simple-audio-card,codec {
+			sound-dai = <&es8323>;
+			system-clock-frequency = <11289600>;
+	    };
+	};
+
+   sdio_pwrseq: sdio-pwrseq {
 		compatible = "mmc-pwrseq-simple";
 		clocks = <&rk805 1>;
 		clock-names = "ext_clock";
@@ -258,6 +282,26 @@
 	vccio1-supply = <&vcc_io>;
 	vccio2-supply = <&vcc_io>;
 	vccio4-supply = <&vcc_io>;
+};
+
+&i2c1 {
+	status = "okay";
+
+	es8323: es8323@11 {
+		#sound-dai-cells = <0>;
+		compatible = "everest,es8323";
+		reg = <0x11>;
+		clocks = <&cru SCLK_I2S_OUT>;
+		clock-names = "mclk";
+		spk-con-gpio = <&gpio1 0 GPIO_ACTIVE_HIGH>;
+		hp-det-gpio = <&gpio1 1 GPIO_ACTIVE_HIGH>;
+		status = "okay";
+	};
+};
+
+&i2s1 {
+	#sound-dai-cells = <0>;
+	status = "okay";
 };
 
 &pinctrl {
