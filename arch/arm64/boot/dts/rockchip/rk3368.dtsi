@@ -696,6 +696,7 @@
 	};
 
 	thermal_zones: thermal-zones {
+		status = "disabled";
 		soc_thermal: soc-thermal {
 			polling-delay-passive = <200>; /* milliseconds */
 			polling-delay = <200>; /* milliseconds */
